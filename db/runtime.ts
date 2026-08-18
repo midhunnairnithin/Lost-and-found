@@ -1,3 +1,18 @@
 import { env } from "cloudflare:workers";
-let ready=false;
-export async function database(){const db=env.DB as D1Database;if(!db)throw new Error("Database unavailable");if(!ready){await db.batch([db.prepare("CREATE TABLE IF NOT EXISTS item_reports (id INTEGER PRIMARY KEY AUTOINCREMENT, reference TEXT NOT NULL UNIQUE, title TEXT NOT NULL, report_type TEXT NOT NULL, category TEXT NOT NULL, description TEXT NOT NULL, location TEXT NOT NULL, incident_date TEXT NOT NULL, image_data TEXT, image_alt_text TEXT, private_verification_detail TEXT, reporter_contact TEXT NOT NULL, created_at TEXT NOT NULL)"),db.prepare("CREATE TABLE IF NOT EXISTS item_claims (id INTEGER PRIMARY KEY AUTOINCREMENT, item_id INTEGER NOT NULL, claimant_name TEXT NOT NULL, claimant_contact TEXT NOT NULL, ownership_details TEXT NOT NULL, created_at TEXT NOT NULL, FOREIGN KEY(item_id) REFERENCES item_reports(id))")]);ready=true}return db}
+let ready = false;
+export async function database() {
+  const db = env.DB as D1Database;
+  if (!db) throw new Error("Database unavailable");
+  if (!ready) {
+    await db.batch([
+      db.prepare(
+        "CREATE TABLE IF NOT EXISTS item_reports (id INTEGER PRIMARY KEY AUTOINCREMENT, reference TEXT NOT NULL UNIQUE, title TEXT NOT NULL, report_type TEXT NOT NULL, category TEXT NOT NULL, description TEXT NOT NULL, location TEXT NOT NULL, incident_date TEXT NOT NULL, image_data TEXT, image_alt_text TEXT, private_verification_detail TEXT, reporter_contact TEXT NOT NULL, created_at TEXT NOT NULL)",
+      ),
+      db.prepare(
+        "CREATE TABLE IF NOT EXISTS item_claims (id INTEGER PRIMARY KEY AUTOINCREMENT, item_id INTEGER NOT NULL, claimant_name TEXT NOT NULL, claimant_contact TEXT NOT NULL, ownership_details TEXT NOT NULL, created_at TEXT NOT NULL, FOREIGN KEY(item_id) REFERENCES item_reports(id))",
+      ),
+    ]);
+    ready = true;
+  }
+  return db;
+}

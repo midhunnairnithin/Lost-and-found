@@ -82,19 +82,31 @@ export default function Home() {
     [menu, setMenu] = useState(false),
     [reportKind, setReportKind] = useState<"lost" | "found">("lost"),
     [selected, setSelected] = useState<Item | null>(null),
-    [notice, setNotice] = useState("");
+    [notice, setNotice] = useState(""),
+    [today, setToday] = useState(""),
+    [loading, setLoading] = useState(true),
+    [loadError, setLoadError] = useState("");
   const report = useRef<HTMLDialogElement>(null),
     detail = useRef<HTMLDialogElement>(null),
     claim = useRef<HTMLDialogElement>(null);
   useEffect(() => {
+    setTimeout(() => setToday(new Date().toISOString().slice(0, 10)), 0);
     const saved = localStorage.getItem("fa-theme");
     if (saved) setTimeout(() => setTheme(saved), 0);
     fetch("/api/items")
-      .then((r) => r.json())
-      .then((d) => {
-        if (d.items?.length) setItems(d.items);
+      .then((r) => {
+        if (!r.ok) throw new Error("Unable to load reports");
+        return r.json();
       })
-      .catch(() => {});
+      .then((d) => {
+        setItems(Array.isArray(d.items) ? d.items : []);
+        setLoadError("");
+      })
+      .catch(() => {
+        setItems([]);
+        setLoadError("We couldn't load the community reports. Please try again.");
+      })
+      .finally(() => setLoading(false));
   }, []);
   useEffect(() => {
     document.documentElement.dataset.theme =
@@ -112,10 +124,10 @@ export default function Home() {
   const shown = useMemo(
     () =>
       items.filter((i) => {
-        const age =
-          (new Date("2026-08-18").getTime() -
-            new Date(i.incidentDate).getTime()) /
-          864e5;
+        const age = today
+          ? (new Date(today).getTime() - new Date(i.incidentDate).getTime()) /
+            864e5
+          : 0;
         return (
           `${i.title} ${i.description} ${i.location} ${i.category}`
             .toLowerCase()
@@ -128,7 +140,7 @@ export default function Home() {
             (period === "30" && age <= 30))
         );
       }),
-    [items, q, kind, cat, period],
+    [items, q, kind, cat, period, today],
   );
   const openReport = (k: "lost" | "found") => {
     setReportKind(k);
@@ -137,6 +149,7 @@ export default function Home() {
   };
   async function submitReport(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    setNotice("Saving your report…");
     const form = e.currentTarget,
       fd = new FormData(form),
       file = fd.get("photo") as File;
@@ -153,11 +166,19 @@ export default function Home() {
       });
     const body = Object.fromEntries(fd);
     delete body.photo;
-    const res = await fetch("/api/items", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ ...body, imageData }),
-    });
+    let res: Response;
+    try {
+      res = await fetch("/api/items", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ...body, imageData }),
+      });
+    } catch {
+      setNotice(
+        "We couldn't save your report. Your entries are still here—please try again.",
+      );
+      return;
+    }
     if (!res.ok) {
       setNotice(
         "We couldn't save your report. Your entries are still here—please try again.",
@@ -172,11 +193,17 @@ export default function Home() {
   async function submitClaim(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (!selected) return;
-    const res = await fetch(`/api/items/${selected.id}/claim`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(Object.fromEntries(new FormData(e.currentTarget))),
-    });
+    let res: Response;
+    try {
+      res = await fetch(`/api/items/${selected.id}/claim`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(Object.fromEntries(new FormData(e.currentTarget))),
+      });
+    } catch {
+      setNotice("We couldn't submit your claim. Please try again.");
+      return;
+    }
     setNotice(
       res.ok
         ? "Your claim has been submitted successfully."
@@ -345,6 +372,16 @@ export default function Home() {
                 </select>
               </label>
             </div>
+            {loading && (
+              <p role="status" aria-live="polite">
+                Loading community reports…
+              </p>
+            )}
+            {loadError && (
+              <p className="notice" role="alert">
+                {loadError} Refresh the page to retry.
+              </p>
+            )}
             <p aria-live="polite">
               {shown.length} {shown.length === 1 ? "report" : "reports"} found
             </p>
@@ -596,11 +633,11 @@ export default function Home() {
           </nav>
         </div>
       </footer>
-      <dialog ref={report} className="modal">
+      <dialog ref={report} className="modal" aria-labelledby="report-dialog-title">
         <form method="dialog" className="modalhead">
           <div>
             <Mark kind={reportKind} />
-            <h2>Report a {reportKind} item</h2>
+            <h2 id="report-dialog-title">Report a {reportKind} item</h2>
           </div>
           <button aria-label="Close">×</button>
         </form>
@@ -645,7 +682,7 @@ export default function Home() {
                 name="incidentDate"
                 type="date"
                 required
-                max={new Date().toISOString().slice(0, 10)}
+                max={today || undefined}
               />
             </label>
             <label className="wide">
@@ -686,11 +723,11 @@ export default function Home() {
           <button className="button primary full">Submit report</button>
         </form>
       </dialog>
-      <dialog ref={detail} className="modal">
+      <dialog ref={detail} className="modal" aria-labelledby="detail-dialog-title">
         <form method="dialog" className="modalhead">
           <div>
             {selected && <Mark kind={selected.reportType} />}
-            <h2>{selected?.title}</h2>
+            <h2 id="detail-dialog-title">{selected?.title}</h2>
           </div>
           <button aria-label="Close">×</button>
         </form>
@@ -734,11 +771,11 @@ export default function Home() {
           </div>
         )}
       </dialog>
-      <dialog ref={claim} className="modal">
+      <dialog ref={claim} className="modal" aria-labelledby="claim-dialog-title">
         <form method="dialog" className="modalhead">
           <div>
             <p className="eyebrow">PRIVATE CLAIM</p>
-            <h2>Tell us why it&apos;s yours</h2>
+            <h2 id="claim-dialog-title">Tell us why it&apos;s yours</h2>
           </div>
           <button aria-label="Close">×</button>
         </form>
