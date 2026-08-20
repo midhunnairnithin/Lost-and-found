@@ -24,6 +24,7 @@ const cats = [
   "Accessories",
   "Other",
 ];
+const contactPattern = /^(?:[^\s@]+@[^\s@]+\.[^\s@]+|\+?[0-9][0-9\s().-]{5,}[0-9])$/;
 const samples: Item[] = [
   {
     id: 1,
@@ -65,7 +66,7 @@ const formatDate = (value: string) => {
 };
 const Mark = ({ kind }: { kind: "lost" | "found" }) => (
   <span className={`status ${kind}`}>
-    {kind === "lost" ? "? LOST" : "✓ FOUND"}
+    {kind === "lost" ? "! LOST" : "✓ FOUND"}
   </span>
 );
 export default function Home() {
@@ -83,6 +84,7 @@ export default function Home() {
     [reportKind, setReportKind] = useState<"lost" | "found">("lost"),
     [selected, setSelected] = useState<Item | null>(null),
     [notice, setNotice] = useState(""),
+    [descriptionLength, setDescriptionLength] = useState(0),
     [today, setToday] = useState(""),
     [loading, setLoading] = useState(true),
     [loadError, setLoadError] = useState("");
@@ -149,12 +151,46 @@ export default function Home() {
   };
   async function submitReport(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    setNotice("Saving your report…");
     const form = e.currentTarget,
       fd = new FormData(form),
-      file = fd.get("photo") as File;
+      file = fd.get("photo") as File,
+      requiredFields = [
+        ["title", "Item name"],
+        ["category", "Category"],
+        ["description", "Item description"],
+        ["location", "Location"],
+        ["incidentDate", "Date"],
+        ["reporterContact", "Contact information"],
+      ] as const,
+      missing = requiredFields
+        .filter(([key]) => !String(fd.get(key) || "").trim())
+        .map(([, label]) => label);
+    if (missing.length) {
+      setNotice(`Please complete: ${missing.join(", ")}.`);
+      return;
+    }
+    const contact = String(fd.get("reporterContact") || "").trim();
+    if (!contactPattern.test(contact)) {
+      setNotice("Please enter a valid email address or phone number.");
+      return;
+    }
+    const description = String(fd.get("description") || "");
+    if (description.length > 2000) {
+      setNotice("Description cannot exceed 2000 characters.");
+      return;
+    }
+    setNotice("Saving your report…");
     if (file?.size > 1_500_000) {
       setNotice("Please choose an image smaller than 1.5 MB.");
+      return;
+    }
+    if (
+      file?.size &&
+      !["image/jpeg", "image/png", "image/webp"].includes(file.type)
+    ) {
+      setNotice(
+        "Unsupported file type. Please upload a JPEG, PNG, or WebP image.",
+      );
       return;
     }
     let imageData = "";
@@ -180,8 +216,11 @@ export default function Home() {
       return;
     }
     if (!res.ok) {
+      const error = await res.json().catch(() => null);
       setNotice(
-        "We couldn't save your report. Your entries are still here—please try again.",
+        typeof error?.error === "string"
+          ? error.error
+          : "We couldn't save your report. Your entries are still here—please try again.",
       );
       return;
     }
@@ -189,16 +228,35 @@ export default function Home() {
     setItems((v) => [item, ...v]);
     setNotice(`Your report has been added. Reference: ${item.reference}`);
     form.reset();
+    setDescriptionLength(0);
   }
   async function submitClaim(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (!selected) return;
+    const form = e.currentTarget;
+    const fd = new FormData(form);
+    const missing = [
+      ["claimantName", "Your name"],
+      ["claimantContact", "Contact information"],
+      ["ownershipDetails", "Identifying details"],
+    ]
+      .filter(([key]) => !String(fd.get(key) || "").trim())
+      .map(([, label]) => label);
+    if (missing.length) {
+      setNotice(`Please complete: ${missing.join(", ")}.`);
+      return;
+    }
+    const contact = String(fd.get("claimantContact") || "").trim();
+    if (!contactPattern.test(contact)) {
+      setNotice("Please enter a valid email address or phone number.");
+      return;
+    }
     let res: Response;
     try {
       res = await fetch(`/api/items/${selected.id}/claim`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify(Object.fromEntries(new FormData(e.currentTarget))),
+        body: JSON.stringify(Object.fromEntries(fd)),
       });
     } catch {
       setNotice("We couldn't submit your claim. Please try again.");
@@ -372,24 +430,26 @@ export default function Home() {
                 </select>
               </label>
             </div>
-            {loading && (
+            {loading ? (
               <p role="status" aria-live="polite">
                 Loading community reports…
               </p>
-            )}
+            ) : null}
             {loadError && (
               <p className="notice" role="alert">
                 {loadError} Refresh the page to retry.
               </p>
             )}
-            <p aria-live="polite">
-              {shown.length} {shown.length === 1 ? "report" : "reports"} found
-            </p>
+            {!loading && (
+              <p aria-live="polite">
+                {shown.length} {shown.length === 1 ? "report" : "reports"} found
+              </p>
+            )}
           </div>
         </section>
         <section className="wrap actions">
           <article className="lostbox">
-            <div className="bigicon">?</div>
+            <div className="bigicon">!</div>
             <div>
               <Mark kind="lost" />
               <h2>Lost something?</h2>
@@ -603,9 +663,9 @@ export default function Home() {
                 className="button light"
                 onClick={() => openReport("lost")}
               >
-                ? Report Lost Item
+                ! Report Lost Item
               </button>
-              <button
+                <button
                 className="button outline"
                 onClick={() => openReport("found")}
               >
@@ -641,7 +701,7 @@ export default function Home() {
           </div>
           <button aria-label="Close">×</button>
         </form>
-        <form className="form" onSubmit={submitReport}>
+        <form className="form" onSubmit={submitReport} noValidate>
           <input type="hidden" name="reportType" value={reportKind} />
           <div className="formgrid">
             <label>
@@ -662,10 +722,22 @@ export default function Home() {
             </label>
             <label className="wide">
               Item description
-              <textarea name="description" required rows={4} />
+              <textarea
+                name="description"
+                required
+                rows={4}
+                maxLength={2000}
+                aria-describedby="description-help description-count"
+                onChange={(e) => setDescriptionLength(e.target.value.length)}
+              />
               <small>
-                Describe colour, brand, size, markings, contents, or other
-                useful identifying details.
+                <span id="description-help">
+                  Describe colour, brand, size, markings, contents, or other
+                  useful identifying details. Maximum 2,000 characters.
+                </span>{" "}
+                <span id="description-count" aria-live="polite">
+                  {descriptionLength} / 2000
+                </span>
               </small>
             </label>
             <label>
@@ -711,7 +783,12 @@ export default function Home() {
             </label>
             <label className="wide">
               Your email or phone
-              <input name="reporterContact" required />
+              <input
+                name="reporterContact"
+                required
+                inputMode="text"
+                autoComplete="email"
+              />
               <small>
                 Kept private and used only to coordinate a verified return.
               </small>
@@ -779,14 +856,19 @@ export default function Home() {
           </div>
           <button aria-label="Close">×</button>
         </form>
-        <form className="form" onSubmit={submitClaim}>
+        <form className="form" onSubmit={submitClaim} noValidate>
           <label>
             Your name
             <input name="claimantName" required autoComplete="name" />
           </label>
           <label>
             Contact information
-            <input name="claimantContact" required />
+            <input
+              name="claimantContact"
+              required
+              inputMode="text"
+              autoComplete="email"
+            />
             <small>Email or phone. This is kept private.</small>
           </label>
           <label>

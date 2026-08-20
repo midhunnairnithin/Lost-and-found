@@ -1,6 +1,7 @@
 import { getSql } from "../../../../../db/postgres";
 
 export const runtime = "nodejs";
+const contactPattern = /^(?:[^\s@]+@[^\s@]+\.[^\s@]+|\+?[0-9][0-9\s().-]{5,}[0-9])$/;
 
 export async function POST(
   request: Request,
@@ -20,6 +21,11 @@ export async function POST(
       !value("ownershipDetails")
     )
       return Response.json({ error: "All fields are required" }, { status: 400 });
+    if (!contactPattern.test(value("claimantContact")))
+      return Response.json(
+        { error: "Please enter a valid email address or phone number." },
+        { status: 400 },
+      );
 
     const sql = await getSql();
     const [item] = await sql`

@@ -13,6 +13,7 @@ const categories = new Set([
   "Accessories",
   "Other",
 ]);
+const contactPattern = /^(?:[^\s@]+@[^\s@]+\.[^\s@]+|\+?[0-9][0-9\s().-]{5,}[0-9])$/;
 
 export async function GET() {
   try {
@@ -51,6 +52,11 @@ export async function POST(request: Request) {
     const reportType = value("reportType");
     const category = value("category");
     const incidentDate = value("incidentDate");
+    if (!contactPattern.test(value("reporterContact")))
+      return Response.json(
+        { error: "Please enter a valid email address or phone number." },
+        { status: 400 },
+      );
     if (!(["lost", "found"] as string[]).includes(reportType))
       return Response.json({ error: "Invalid report type" }, { status: 400 });
     if (!categories.has(category))
@@ -71,7 +77,13 @@ export async function POST(request: Request) {
     if (imageData && imageData.length > 2_100_000)
       return Response.json({ error: "Image is too large" }, { status: 413 });
     if (imageData && !/^data:image\/(jpeg|png|webp);base64,/i.test(imageData))
-      return Response.json({ error: "Unsupported image format" }, { status: 400 });
+      return Response.json(
+        {
+          error:
+            "Unsupported file type. Please upload a JPEG, PNG, or WebP image.",
+        },
+        { status: 400 },
+      );
 
     const sql = await getSql();
     const year = new Date().getFullYear();
