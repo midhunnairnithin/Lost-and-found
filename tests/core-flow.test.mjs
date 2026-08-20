@@ -13,6 +13,8 @@ test("1. homepage exposes the lost/found reporting flow", () => {
   assert.match(page, /Report Lost Item/);
   assert.match(page, /Report Found Item/);
   assert.match(page, /What are you looking for\?/);
+  assert.match(page, /aria-pressed=\{cat === x\}/);
+  assert.match(page, /scrollIntoView/);
 });
 test("2. empty report fields are rejected", () => {
   assert.match(itemsApi, /const missing = required\.find/);

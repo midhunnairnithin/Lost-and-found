@@ -148,20 +148,27 @@ header {
 }
 .tools {
   display: flex;
+  align-items: center;
   gap: 8px;
+  flex-shrink: 0;
 }
 .tools button,
 .tools select,
 .menub {
+  height: 42px;
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 9px;
-  padding: 8px;
+  padding: 8px 10px;
+}
+.tools select {
+  min-width: 88px;
+  cursor: pointer;
 }
 .access {
   position: absolute;
-  right: 80px;
-  top: 66px;
+  right: 0;
+  top: calc(100% + 10px);
   display: grid;
   gap: 10px;
   padding: 18px;
@@ -387,6 +394,15 @@ h2 {
   border: 1px solid var(--line);
   border-radius: 22px;
 }
+.actions article > div:last-child {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+.actions article .button {
+  align-self: flex-end;
+  margin-top: auto;
+}
 .lostbox {
   background: var(--lostbg);
 }
@@ -547,6 +563,17 @@ dd {
   gap: 8px;
   font-weight: 750;
   cursor: pointer;
+  color: var(--ink);
+  transition: transform 0.2s, border-color 0.2s, box-shadow 0.2s,
+    background 0.2s;
+}
+.categories button:hover,
+.categories button:focus-visible,
+.categories button.selected {
+  border-color: var(--brand);
+  background: color-mix(in srgb, var(--mint) 55%, var(--surface));
+  box-shadow: 0 8px 20px color-mix(in srgb, var(--brand) 18%, transparent);
+  transform: translateY(-2px);
 }
 .categories button span {
   font-size: 1.8rem;
@@ -745,7 +772,7 @@ footer {
     grid-template-columns: repeat(3, 1fr);
   }
   .access {
-    right: 15px;
+    right: 0;
   }
 }
 @media (max-width: 600px) {
@@ -756,7 +783,8 @@ footer {
     gap: 7px;
   }
   .tools select {
-    width: 52px;
+    width: 88px;
+    min-width: 88px;
   }
   .hero {
     padding: 55px 0 85px;

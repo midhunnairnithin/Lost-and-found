@@ -149,6 +149,18 @@ export default function Home() {
     setNotice("");
     setTimeout(() => report.current?.showModal(), 0);
   };
+  const selectCategory = (category: string) => {
+    setCat(category);
+    setQ("");
+    setKind("all");
+    setPeriod("all");
+    requestAnimationFrame(() => {
+      document.getElementById("search")?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    });
+  };
   async function submitReport(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const form = e.currentTarget,
@@ -583,10 +595,10 @@ export default function Home() {
             {cats.map((x, n) => (
               <button
                 key={x}
-                onClick={() => {
-                  setCat(x);
-                  location.hash = "search";
-                }}
+                type="button"
+                className={cat === x ? "selected" : ""}
+                aria-pressed={cat === x}
+                onClick={() => selectCategory(x)}
               >
                 <span aria-hidden="true">
                   {["▣", "▱", "⌁", "▤", "◇", "♧", "▥", "◉", "+"][n]}
