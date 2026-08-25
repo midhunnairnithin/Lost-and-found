@@ -1,18 +1,8 @@
 import { getSql } from "../../../db/postgres";
+import { FOUND_AGAIN_CATEGORY_SET } from "../../../lib/categories.mjs";
 
 export const runtime = "nodejs";
 
-const categories = new Set([
-  "Phones & Electronics",
-  "Wallets & Bags",
-  "Keys",
-  "ID Cards & Documents",
-  "Jewellery",
-  "Clothing",
-  "Books",
-  "Accessories",
-  "Other",
-]);
 const contactPattern = /^(?:[^\s@]+@[^\s@]+\.[^\s@]+|\+?[0-9][0-9\s().-]{5,}[0-9])$/;
 
 export async function GET() {
@@ -20,7 +10,7 @@ export async function GET() {
     const sql = await getSql();
     const items = await sql`
       SELECT id, reference, title, report_type AS "reportType", category,
-        description, location, incident_date AS "incidentDate",
+        description, location, TO_CHAR(incident_date, 'YYYY-MM-DD') AS "incidentDate",
         image_data AS "imageData", image_alt_text AS "imageAltText",
         created_at AS "createdAt"
       FROM item_reports ORDER BY created_at DESC LIMIT 100
@@ -59,7 +49,7 @@ export async function POST(request: Request) {
       );
     if (!(["lost", "found"] as string[]).includes(reportType))
       return Response.json({ error: "Invalid report type" }, { status: 400 });
-    if (!categories.has(category))
+    if (!FOUND_AGAIN_CATEGORY_SET.has(category))
       return Response.json({ error: "Invalid category" }, { status: 400 });
     if (!/^\d{4}-\d{2}-\d{2}$/.test(incidentDate))
       return Response.json({ error: "Invalid incident date" }, { status: 400 });
@@ -104,7 +94,7 @@ export async function POST(request: Request) {
         ${value("reporterContact").slice(0, 255)}
       )
       RETURNING id, reference, title, report_type AS "reportType", category,
-        description, location, incident_date AS "incidentDate",
+        description, location, TO_CHAR(incident_date, 'YYYY-MM-DD') AS "incidentDate",
         image_data AS "imageData", image_alt_text AS "imageAltText",
         created_at AS "createdAt"
     `;

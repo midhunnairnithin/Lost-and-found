@@ -52,3 +52,26 @@ Date: 2026-08-20
 - Empty required fields produce a clear form-level validation message without submitting.
 - Unsupported file types are rejected with an explicit JPEG/PNG/WebP message.
 - Production deployment `dpl_529bHVMwZZfPbTjMVmJwBW7ebRPT` completed with status READY.
+
+## QA execution run 2026-08-20
+
+| Case | Result | Notes |
+|---|---|---|
+| 01 Search Wallet | **Blocked** | Homepage returned HTTP 200, but `GET /api/items` returned HTTP 500 because `DATABASE_URL` is not configured locally. |
+| 02 Filter Lost | **Blocked** | Filter implementation is covered by automated checks, but live reports could not load without the database connection. |
+| 03 Valid Lost report | **Blocked** | Form/build validation passed; successful persistence could not be verified without `DATABASE_URL`. |
+| 04 Valid Found report | **Blocked** | Same database configuration blocker as Case 03. |
+| 05 Empty report | **Pass** | Live API returned HTTP 400 (`title is required`); no report was submitted. |
+| 06 Very long description | **Pass** | 2,000-character limit and counter are present; build and automated checks passed. |
+| 07 Unsupported file | **Pass** | Live API returned HTTP 400 with the JPEG/PNG/WebP validation message. |
+| 08 View details | **Blocked** | Details implementation is present, but no live report list was available. |
+| 09 Submit claim | **Blocked** | Contact/required validation passed; successful claim persistence requires a loaded database item. |
+| 10 UNKNOWNITEM search | **Pass*** | Empty-state logic is present (`No matching items found.`); live data search is database-blocked. |
+
+### Bugs found in this run
+
+| ID | Severity | Status | Finding |
+|---|---|---|---|
+| QA-01 | High | Environment blocker | `DATABASE_URL` is missing from the local runtime, causing database-backed report requests to return HTTP 500. Configure the Neon pooled connection string before repeating Cases 01–04 and 08–09 end-to-end. |
+
+Automated verification: `npm test` passed with 11/11 assertions. Homepage live check: HTTP 200.

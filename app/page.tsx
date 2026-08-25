@@ -1,5 +1,7 @@
 "use client";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FOUND_AGAIN_CATEGORIES } from "../lib/categories.mjs";
+import { formatReportDate, uniqueReports } from "../lib/reports.mjs";
 type Item = {
   id: number;
   reference: string;
@@ -13,17 +15,22 @@ type Item = {
   imageAltText?: string | null;
   createdAt: string;
 };
-const cats = [
-  "Phones & Electronics",
-  "Wallets & Bags",
-  "Keys",
-  "ID Cards & Documents",
-  "Jewellery",
-  "Clothing",
-  "Books",
-  "Accessories",
-  "Other",
-];
+type CategorySuggestion = {
+  recommendedCategory: string;
+  confidence: number;
+  reason: string;
+  alternativeCategories: Array<{
+    category: string;
+    confidence: number;
+    reason: string;
+  }>;
+};
+type SuggestionMeta = {
+  model: string;
+  generationId?: string;
+  generatedAt: string;
+};
+const cats = FOUND_AGAIN_CATEGORIES;
 const contactPattern = /^(?:[^\s@]+@[^\s@]+\.[^\s@]+|\+?[0-9][0-9\s().-]{5,}[0-9])$/;
 const samples: Item[] = [
   {
@@ -60,10 +67,6 @@ const samples: Item[] = [
     createdAt: "2026-08-15",
   },
 ];
-const formatDate = (value: string) => {
-  const [year, month, day] = value.split("-");
-  return `${day}/${month}/${year}`;
-};
 const Mark = ({ kind }: { kind: "lost" | "found" }) => (
   <span className={`status ${kind}`}>
     {kind === "lost" ? "! LOST" : "✓ FOUND"}
@@ -84,13 +87,25 @@ export default function Home() {
     [reportKind, setReportKind] = useState<"lost" | "found">("lost"),
     [selected, setSelected] = useState<Item | null>(null),
     [notice, setNotice] = useState(""),
+    [itemName, setItemName] = useState(""),
+    [description, setDescription] = useState(""),
+    [reportCategory, setReportCategory] = useState(""),
     [descriptionLength, setDescriptionLength] = useState(0),
+    [aiSuggestion, setAiSuggestion] = useState<CategorySuggestion | null>(null),
+    [aiMeta, setAiMeta] = useState<SuggestionMeta | null>(null),
+    [aiMessage, setAiMessage] = useState(""),
+    [aiLoading, setAiLoading] = useState(false),
+    [aiSnapshot, setAiSnapshot] = useState(""),
+    [reportSubmitting, setReportSubmitting] = useState(false),
     [today, setToday] = useState(""),
     [loading, setLoading] = useState(true),
     [loadError, setLoadError] = useState("");
   const report = useRef<HTMLDialogElement>(null),
+    reportForm = useRef<HTMLFormElement>(null),
+    categorySelect = useRef<HTMLSelectElement>(null),
     detail = useRef<HTMLDialogElement>(null),
-    claim = useRef<HTMLDialogElement>(null);
+    claim = useRef<HTMLDialogElement>(null),
+    reportSubmittingRef = useRef(false);
   useEffect(() => {
     setTimeout(() => setToday(new Date().toISOString().slice(0, 10)), 0);
     const saved = localStorage.getItem("fa-theme");
@@ -101,7 +116,7 @@ export default function Home() {
         return r.json();
       })
       .then((d) => {
-        setItems(Array.isArray(d.items) ? d.items : []);
+        setItems(Array.isArray(d.items) ? uniqueReports(d.items) : []);
         setLoadError("");
       })
       .catch(() => {
@@ -147,6 +162,10 @@ export default function Home() {
   const openReport = (k: "lost" | "found") => {
     setReportKind(k);
     setNotice("");
+    setAiMessage("");
+    setAiSuggestion(null);
+    setAiMeta(null);
+    setAiSnapshot("");
     setTimeout(() => report.current?.showModal(), 0);
   };
   const selectCategory = (category: string) => {
@@ -161,6 +180,55 @@ export default function Home() {
       });
     });
   };
+  const currentAiInput = `${reportKind}\n${itemName.trim()}\n${description.trim()}`;
+  const aiSuggestionOutdated = Boolean(
+    aiSuggestion && aiSnapshot && aiSnapshot !== currentAiInput,
+  );
+  async function suggestCategory() {
+    if (!itemName.trim() && !description.trim()) {
+      setAiMessage("Enter an item name or description before requesting a suggestion.");
+      return;
+    }
+    setAiLoading(true);
+    setAiMessage("Requesting a live AI category suggestion…");
+    try {
+      const response = await fetch("/api/ai/detect-category", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ itemName, description, reportType: reportKind }),
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok || !data?.success) {
+        setAiSuggestion(null);
+        setAiMeta(null);
+        setAiMessage(
+          typeof data?.error === "string"
+            ? data.error
+            : "We couldn’t determine a category. Please choose one manually.",
+        );
+        return;
+      }
+      setAiSuggestion(data.suggestion);
+      setAiMeta(data.meta);
+      setAiSnapshot(currentAiInput);
+      setAiMessage("AI category suggestion ready.");
+    } catch {
+      setAiSuggestion(null);
+      setAiMeta(null);
+      setAiMessage(
+        "The AI category service is unavailable. Please choose a category manually.",
+      );
+    } finally {
+      setAiLoading(false);
+    }
+  }
+  function chooseCategoryManually() {
+    setAiSuggestion(null);
+    setAiMeta(null);
+    setAiSnapshot("");
+    setAiMessage("Choose any category from the category field.");
+    categorySelect.current?.focus();
+  }
   async function submitReport(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const form = e.currentTarget,
@@ -186,12 +254,11 @@ export default function Home() {
       setNotice("Please enter a valid email address or phone number.");
       return;
     }
-    const description = String(fd.get("description") || "");
-    if (description.length > 2000) {
+    const descriptionValue = String(fd.get("description") || "");
+    if (descriptionValue.length > 2000) {
       setNotice("Description cannot exceed 2000 characters.");
       return;
     }
-    setNotice("Saving your report…");
     if (file?.size > 1_500_000) {
       setNotice("Please choose an image smaller than 1.5 MB.");
       return;
@@ -205,42 +272,55 @@ export default function Home() {
       );
       return;
     }
-    let imageData = "";
-    if (file?.size)
-      imageData = await new Promise<string>((ok) => {
-        const r = new FileReader();
-        r.onload = () => ok(String(r.result));
-        r.readAsDataURL(file);
-      });
-    const body = Object.fromEntries(fd);
-    delete body.photo;
-    let res: Response;
+    if (reportSubmittingRef.current) return;
+    reportSubmittingRef.current = true;
+    setReportSubmitting(true);
+    setNotice("Saving your report…");
     try {
-      res = await fetch("/api/items", {
+      let imageData = "";
+      if (file?.size)
+        imageData = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result));
+          reader.onerror = () => reject(new Error("Unable to read image"));
+          reader.readAsDataURL(file);
+        });
+      const body = Object.fromEntries(fd);
+      delete body.photo;
+      const res = await fetch("/api/items", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ ...body, imageData }),
       });
+      if (!res.ok) {
+        const error = await res.json().catch(() => null);
+        setNotice(
+          typeof error?.error === "string"
+            ? error.error
+            : "We couldn't save your report. Your entries are still here—please try again.",
+        );
+        return;
+      }
+      const { item } = await res.json();
+      setItems((existing) => uniqueReports([item, ...existing]));
+      setNotice(`Your report has been added. Reference: ${item.reference}`);
+      form.reset();
+      setItemName("");
+      setDescription("");
+      setReportCategory("");
+      setDescriptionLength(0);
+      setAiSuggestion(null);
+      setAiMeta(null);
+      setAiSnapshot("");
+      setAiMessage("");
     } catch {
       setNotice(
         "We couldn't save your report. Your entries are still here—please try again.",
       );
-      return;
+    } finally {
+      reportSubmittingRef.current = false;
+      setReportSubmitting(false);
     }
-    if (!res.ok) {
-      const error = await res.json().catch(() => null);
-      setNotice(
-        typeof error?.error === "string"
-          ? error.error
-          : "We couldn't save your report. Your entries are still here—please try again.",
-      );
-      return;
-    }
-    const { item } = await res.json();
-    setItems((v) => [item, ...v]);
-    setNotice(`Your report has been added. Reference: ${item.reference}`);
-    form.reset();
-    setDescriptionLength(0);
   }
   async function submitClaim(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -521,7 +601,7 @@ export default function Home() {
                       </div>
                       <div>
                         <dt>Date</dt>
-                        <dd>{formatDate(i.incidentDate)}</dd>
+                        <dd>{formatReportDate(i.incidentDate)}</dd>
                       </div>
                     </dl>
                     <button
@@ -713,17 +793,31 @@ export default function Home() {
           </div>
           <button aria-label="Close">×</button>
         </form>
-        <form className="form" onSubmit={submitReport} noValidate>
+        <form ref={reportForm} className="form" onSubmit={submitReport} noValidate>
           <input type="hidden" name="reportType" value={reportKind} />
           <div className="formgrid">
             <label>
               Item name
-              <input name="title" required placeholder="Black wallet" />
+              <input
+                name="title"
+                required
+                maxLength={150}
+                value={itemName}
+                onChange={(event) => setItemName(event.target.value)}
+                placeholder="Black wallet"
+              />
               <small>Use a short, recognisable name.</small>
             </label>
-            <label>
-              Category
-              <select name="category" required defaultValue="">
+            <div className="field">
+              <label htmlFor="report-category">Category</label>
+              <select
+                ref={categorySelect}
+                id="report-category"
+                name="category"
+                required
+                value={reportCategory}
+                onChange={(event) => setReportCategory(event.target.value)}
+              >
                 <option value="" disabled>
                   Choose a category
                 </option>
@@ -731,7 +825,17 @@ export default function Home() {
                   <option key={x}>{x}</option>
                 ))}
               </select>
-            </label>
+              <button
+                type="button"
+                className="ai-trigger"
+                onClick={suggestCategory}
+                disabled={aiLoading}
+                aria-busy={aiLoading}
+              >
+                {aiLoading ? "Suggesting category…" : "Suggest Category with AI"}
+              </button>
+              <small>The suggestion is optional. You always make the final choice.</small>
+            </div>
             <label className="wide">
               Item description
               <textarea
@@ -739,8 +843,12 @@ export default function Home() {
                 required
                 rows={4}
                 maxLength={2000}
+                value={description}
                 aria-describedby="description-help description-count"
-                onChange={(e) => setDescriptionLength(e.target.value.length)}
+                onChange={(event) => {
+                  setDescription(event.target.value);
+                  setDescriptionLength(event.target.value.length);
+                }}
               />
               <small>
                 <span id="description-help">
@@ -752,6 +860,91 @@ export default function Home() {
                 </span>
               </small>
             </label>
+            <div
+              className="ai-category wide"
+              aria-live="polite"
+              aria-busy={aiLoading}
+            >
+              <div className="ai-category-head">
+                <div>
+                  <p className="eyebrow">AI CATEGORY SUGGESTION</p>
+                  <strong>Smart Category Detection</strong>
+                </div>
+                <span>AI-generated suggestion</span>
+              </div>
+              <p className="ai-message" role={aiMessage.includes("unavailable") ? "alert" : "status"}>
+                {aiMessage ||
+                  "Enter an item name and a useful description, then request a live suggestion."}
+              </p>
+              {aiSuggestion && aiMeta && (
+                <div className="ai-result">
+                  {aiSuggestionOutdated && (
+                    <p className="ai-warning" role="status">
+                      The item details changed. This suggestion may be outdated—try again
+                      before applying it.
+                    </p>
+                  )}
+                  <div className="ai-recommendation">
+                    <div>
+                      <small>Recommended category</small>
+                      <h3>{aiSuggestion.recommendedCategory}</h3>
+                    </div>
+                    <strong aria-label={`Confidence ${aiSuggestion.confidence} percent`}>
+                      {aiSuggestion.confidence}% confidence
+                    </strong>
+                  </div>
+                  <p>{aiSuggestion.reason}</p>
+                  {aiSuggestion.alternativeCategories.length > 0 && (
+                    <div className="ai-alternatives">
+                      <strong>Alternatives</strong>
+                      <ul>
+                        {aiSuggestion.alternativeCategories.map((alternative) => (
+                          <li key={alternative.category}>
+                            <b>{alternative.category}</b> · {alternative.confidence}% —{" "}
+                            {alternative.reason}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  <div className="ai-actions">
+                    <button
+                      type="button"
+                      className="button primary"
+                      disabled={aiSuggestionOutdated}
+                      onClick={() => {
+                        setReportCategory(aiSuggestion.recommendedCategory);
+                        setAiMessage(
+                          `${aiSuggestion.recommendedCategory} applied. You can still change it manually.`,
+                        );
+                        categorySelect.current?.focus();
+                      }}
+                    >
+                      Use this category
+                    </button>
+                    <button
+                      type="button"
+                      className="button secondary"
+                      onClick={suggestCategory}
+                      disabled={aiLoading}
+                    >
+                      Try again
+                    </button>
+                    <button
+                      type="button"
+                      className="textlink"
+                      onClick={chooseCategoryManually}
+                    >
+                      Choose manually
+                    </button>
+                  </div>
+                  <small className="ai-meta">
+                    Generated live with {aiMeta.model} ·{" "}
+                    {new Date(aiMeta.generatedAt).toLocaleString()}
+                  </small>
+                </div>
+              )}
+            </div>
             <label>
               Location
               <input
@@ -809,7 +1002,9 @@ export default function Home() {
           <p className="notice" role="status" aria-live="polite">
             {notice}
           </p>
-          <button className="button primary full">Submit report</button>
+          <button className="button primary full" disabled={reportSubmitting}>
+            {reportSubmitting ? "Submitting report…" : "Submit report"}
+          </button>
         </form>
       </dialog>
       <dialog ref={detail} className="modal" aria-labelledby="detail-dialog-title">
@@ -841,7 +1036,7 @@ export default function Home() {
               </div>
               <div>
                 <dt>Date</dt>
-                <dd>{formatDate(selected.incidentDate)}</dd>
+                <dd>{formatReportDate(selected.incidentDate)}</dd>
               </div>
             </dl>
             <button
